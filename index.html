@@ -422,12 +422,28 @@
                 img.crossOrigin = "Anonymous";
                 
                 img.onload = async () => {
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0);
+                    // Mobile Fix: Cap resolution to 4096 to prevent canvas crash on high-res photos
+                    const maxDimension = 4096;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxDimension || height > maxDimension) {
+                        if (width > height) {
+                            height = Math.round((height * maxDimension) / width);
+                            width = maxDimension;
+                        } else {
+                            width = Math.round((width * maxDimension) / height);
+                            height = maxDimension;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
 
                     if (overlaySettings.enabled) {
-                        const scaleFactor = Math.max(img.width, img.height) / 2000; 
+                        // Use calculated width/height for scale factor
+                        const scaleFactor = Math.max(width, height) / 2000; 
                         const baseFontSize = 32 * scaleFactor * overlaySettings.fontSize;
                         const padding = 40 * scaleFactor;
                         const lineHeight = baseFontSize * 1.5;
@@ -622,7 +638,8 @@
 
                     // EXIF & Download
                     try {
-                        const newDataUrl = canvas.toDataURL("image/jpeg", 0.95);
+                        // Use slightly lower quality (0.90) to save memory on mobile devices during base64 conversion
+                        const newDataUrl = canvas.toDataURL("image/jpeg", 0.90);
                         let exifObj = { "0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": null };
                         if (originalExif) {
                             if (originalExif["0th"]) for (let tag in originalExif["0th"]) if (parseInt(tag) !== 34853) exifObj["0th"][tag] = originalExif["0th"][tag];
@@ -643,8 +660,13 @@
                         document.body.appendChild(link);
                         link.click();
                         document.body.removeChild(link);
-                    } catch (err) { alert("Error generating EXIF data."); } 
-                    finally { setIsDownloading(false); }
+                    } catch (err) { 
+                        console.error("Download Error", err);
+                        alert("Error generating image. Try a smaller photo."); 
+                    } 
+                    finally { 
+                        setIsDownloading(false); 
+                    }
                 };
                 img.src = imagePreview;
             };
