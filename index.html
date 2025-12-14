@@ -193,6 +193,15 @@
             const videoRef = useRef(null);
             const streamRef = useRef(null);
 
+            // Clean up Blob URLs to avoid memory leaks
+            useEffect(() => {
+                return () => {
+                    if (imagePreview && imagePreview.startsWith('blob:')) {
+                        URL.revokeObjectURL(imagePreview);
+                    }
+                };
+            }, [imagePreview]);
+
             // --- Map Logic ---
             useEffect(() => {
                 if (!imageFile || !mapRef.current) return;
@@ -318,11 +327,17 @@
             const handleImageUpload = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
+
+                // Fix for white screen crash: Use Blob URL instead of Data URL for preview
+                if (imagePreview) URL.revokeObjectURL(imagePreview);
+                const objectUrl = URL.createObjectURL(file);
+                setImagePreview(objectUrl);
+                setImageFile(file);
+
+                // Read file separately just for EXIF parsing
                 const reader = new FileReader();
                 reader.onload = (evt) => {
                     const result = evt.target.result;
-                    setImagePreview(result);
-                    setImageFile(file);
                     try {
                         const exifObj = piexif.load(result);
                         setOriginalExif(exifObj);
@@ -337,7 +352,10 @@
                             if (lngRef === 'W' || (Array.isArray(lngRef) && String.fromCharCode(...lngRef).includes('W'))) lng = -lng;
                             updateCoordinates(lat, lng);
                         }
-                    } catch (error) { setOriginalExif(null); }
+                    } catch (error) { 
+                        console.warn("EXIF Error or not a JPEG", error);
+                        setOriginalExif(null); 
+                    }
                 };
                 reader.readAsDataURL(file);
             };
@@ -381,6 +399,8 @@
                 const ctx = canvas.getContext('2d');
                 if (cameraFacingMode === 'user') { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // For camera, dataURL is usually smaller than raw upload, but we can stick to dataURL or blob
                 setImagePreview(canvas.toDataURL('image/jpeg', 1.0));
                 setImageFile({ name: `capture_${Date.now()}.jpg`, lastModified: Date.now() });
                 setOriginalExif(null);
@@ -397,6 +417,9 @@
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 const img = new Image();
+                
+                // Allow cross-origin for blob/data URLs to prevent taint
+                img.crossOrigin = "Anonymous";
                 
                 img.onload = async () => {
                     canvas.width = img.width;
